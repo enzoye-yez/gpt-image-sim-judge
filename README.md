@@ -122,3 +122,18 @@ with terra. rate-v2: about 2.2k input and 60–150 output tokens. The Batch API 
 terra and sol ranked pairs nearly the same way once there was a real difference (within-level Spearman ≈ 0.86 on
 different-brief pairs; 0.59 on seed-only pairs); luna agreed less (0.75–0.78). terra scored ~0.75 higher than sol on
 average. Self-consistency on 350 anchor/B/C triplets asked in both orders: terra 0.92, sol 0.83, luna 0.75.
+
+## Human check (`annotate/`)
+
+A small annotation server for the question the judges are trying to answer: given a REFERENCE and two candidates,
+which candidate looks more like the reference? (A / B / about the same / broken image). Raters see only the request
+text and the three images; which candidate is which, and any judge scores, stay in the server-side key.
+
+```bash
+python annotate/make_task.py items.jsonl task_dir/       # items: {"id", "query"?, "ref", "b", "c", "<judge>": [score_b, score_c], ...}
+cp annotate/server.py annotate/page.html task_dir/ && python task_dir/server.py 8771     # http://127.0.0.1:8771/
+python annotate/analyze.py task_dir/ v2 v3               # agreement of each judge with the human majority, 95% bootstrap
+```
+
+Votes are appended to `task_dir/votes.jsonl` (the last vote of a rater on an item wins). Only items where the judges
+disagree can tell them apart, so build the item list with mostly such items.
