@@ -1,0 +1,3 @@
+{"pid": "near_duplicate", "image_a": "examples/images/a.png", "image_b": "examples/images/a_shift.png"}
+{"pid": "same_layout_recolored", "image_a": "examples/images/a.png", "image_b": "examples/images/b_recolor.png"}
+{"pid": "different_design", "image_a": "examples/images/a.png", "image_b": "examples/images/c_other.png"}
