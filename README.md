@@ -19,8 +19,10 @@ the reference's design — the way a designer checks a render against an approve
 - Built from Qwen-Image-PE's design dimensions (lighting / composition / layout / detail) plus content, style and
   text, written in the style of the PRISM-Bench and VQA judge prompts: start at 10 and deduct within fixed bands,
   justification before score, each difference counted in one dimension only, `null` when not applicable.
-- **Use `overall` as the similarity score.** `overall_calc` (plain mean of the non-null dimensions) is a secondary
-  summary; the seven dimensions are there to say *what* differs.
+- **Use `score` as the similarity score**: `score = 0.5 · overall + 0.5 · overall_calc`, where `overall` is the model's
+  holistic 0–10 integer and `overall_calc` the plain mean of the non-null dimensions. The integer `overall` ties in a
+  third of the pairs; `score` almost never ties and agreed better with the reference judge (validation, part 2). The
+  seven dimensions say *what* differs.
 - OpenAI Responses API with a strict JSON schema, reasoning effort `low`, images downscaled to ≤ 1024 px long side
   (webp q90, `detail: high`). Default model `gpt-6.1-terra`.
 - `--prompt rate-v2` runs the earlier symmetric prompt (5 aspects + overall), byte-identical to its 2026-11-19 run.
@@ -38,7 +40,7 @@ Input, one pair per line: `{"pid", "image_a", "image_b"}` — local paths or htt
 `image_a` is the REFERENCE and `image_b` the CANDIDATE.
 
 Output (rate-v3), one row per pair:
-`{"pid", "content", "lighting_color", "composition", "layout", "style", "detail", "text", "overall", "overall_calc",
+`{"pid", "score", "content", "lighting_color", "composition", "layout", "style", "detail", "text", "overall", "overall_calc",
 "justifications": {dim: str}, "prompt", "model", "usage"}`; a pair that failed after retries gets `"error"` instead.
 Re-running with the same output file judges only the pairs that are missing or failed.
 
@@ -75,14 +77,19 @@ move or mirror); blur is penalized only mildly (−2 in detail).
 **2. Do the totals rank real pairs sensibly?** 2,000 real pairs from a text-to-design pipeline, by how the two images
 differ. Spearman within each level against the earlier rate-v2 scores of `gpt-6.1-sol` (a reference, not ground truth):
 
-| level | n | mean `overall` | v3 `overall` vs v2 sol | v3 `overall_calc` vs v2 sol | v2 terra vs v2 sol |
-|---|---|---|---|---|---|
-| same brief, different seed | 300 | 8.0 | 0.61 | 0.69 | 0.57 |
-| different brief, same request | 700 | 5.3 | 0.83 | 0.81 | 0.85 |
-| brief from a different writer | 400 | 5.2 | 0.80 | 0.76 | 0.85 |
-| brief written from the image | 200 | 5.2 | 0.82 | 0.81 | 0.87 |
-| nearest-neighbour request | 250 | 1.4 | 0.90 | 0.73 | 0.92 |
-| random pair | 150 | 0.5 | 0.80 | 0.55 | 0.84 |
+| level | n | mean `overall` | v3 `score` vs v2 sol | v3 `overall` vs v2 sol | v3 `overall_calc` vs v2 sol | v2 terra vs v2 sol |
+|---|---|---|---|---|---|---|
+| same brief, different seed | 300 | 8.0 | **0.70** | 0.61 | 0.69 | 0.57 |
+| different brief, same request | 700 | 5.3 | **0.86** | 0.83 | 0.81 | 0.85 |
+| brief from a different writer | 400 | 5.2 | **0.81** | 0.80 | 0.76 | 0.85 |
+| brief written from the image | 200 | 5.2 | **0.86** | 0.82 | 0.81 | 0.87 |
+| nearest-neighbour request | 250 | 1.4 | 0.88 | 0.90 | 0.73 | 0.92 |
+| random pair | 150 | 0.5 | 0.72 | 0.80 | 0.55 | 0.84 |
+
+`score` is best on the four levels where the images are close (the ones that matter for ranking renders of the same
+request); on unrelated pairs the integer `overall` is slightly better, where everything is near 0 anyway. Ties within
+the different-brief level: `overall` 31.8%, `score` 2.1%. On the perturbations, mild-above-strong ordering 0.944 → 0.970
+and identical-copy-above-perturbed 0.960 → 0.991 (`overall` → `score`); re-test change 0.17 → 0.19 points.
 
 v3 `overall` agrees with v2 sol about as well as v2 terra did, and better on seed-only differences. Level means fall
 monotonically. Among the single dimensions, style / layout / composition track the v2 overall most (ρ ≈ 0.55–0.63 on

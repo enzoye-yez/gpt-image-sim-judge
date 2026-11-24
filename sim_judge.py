@@ -15,7 +15,7 @@ Batch API (half price, up to 24 h):
     python sim_judge.py batch-collect work/ out.jsonl                 # parses outputs into the same rows as `run`
 
 Input, one pair per line: {"pid": str, "image_a": path-or-URL, "image_b": path-or-URL}   (pid unique)
-Output (rate-v3): {"pid", "content", "lighting_color", "composition", "layout", "style", "detail", "text", "overall", "overall_calc",
+Output (rate-v3): {"pid", "score", "content", "lighting_color", "composition", "layout", "style", "detail", "text", "overall", "overall_calc",
                    "justifications": {dim: str}, "prompt", "model", "usage"}   (layout / text may be null; failures get "error")
 The API key comes from $OPENAI_API_KEY (or the file in $OPENAI_API_KEY_FILE); it is never printed or written.
 """
@@ -113,8 +113,10 @@ DEFAULT_PROMPT = 'rate-v3'
 # kept for code written against the first release
 PROMPT_VERSION, PROMPT, ASPECTS = 'rate-v2', PROMPT_V2, ('content', 'layout', 'color', 'style', 'text')
 
-# overall_calc (rate-v3): plain mean of the non-null dimensions, a secondary summary next to the model's own `overall`
-# (the recommended score). A content cap (content <= 3 -> cap at content) was tried and dropped: it flattened the many
+# score (rate-v3, the recommended total): SCORE_W_OVERALL * overall + (1 - SCORE_W_OVERALL) * overall_calc. The model's
+# holistic `overall` is an integer and ties often (32% of pairs within a level); blending in the mean of the seven
+# dimensions breaks almost all ties (2%) and agreed better with the reference judge (see README).
+# overall_calc: plain mean of the non-null dimensions. A content cap (content <= 3 -> cap at content) was tried and dropped: it flattened the many
 # different-brief pairs with low content scores and lowered agreement with the reference judge (see README).
 
 
@@ -179,13 +181,16 @@ def parse_scores(text):
     return out
 
 
+SCORE_W_OVERALL = 0.5
+
+
 def overall_calc(scores):
     xs = [scores[d] for d in DIMS_V3 if scores.get(d) is not None]
     return round(sum(xs) / len(xs), 3)
 
 
 def parse_scores_v3(text):
-    """rate-v3 model text -> {"overall", "overall_calc", seven dims..., "justifications": {dim: str}}."""
+    """rate-v3 model text -> {"score", "overall", "overall_calc", seven dims..., "justifications": {dim: str}}."""
     v = _json(text)
     out, why = {}, {}
     for d in DIMS_V3 + ('overall',):
@@ -193,6 +198,7 @@ def parse_scores_v3(text):
         if not isinstance(e, dict): raise ValueError(f'missing {d}')
         out[d] = _score(e.get('score'), d, d in NULLABLE_V3); why[d] = str(e.get('justification', ''))
     out['overall_calc'] = overall_calc(out)
+    out['score'] = round(SCORE_W_OVERALL * out['overall'] + (1 - SCORE_W_OVERALL) * out['overall_calc'], 3)
     out['justifications'] = why
     return out
 

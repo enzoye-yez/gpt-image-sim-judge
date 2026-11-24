@@ -240,7 +240,7 @@ JSON schema (`text.format`, strict):
 }
 ```
 
-`overall_calc` is computed in code: the plain mean of the non-null dimensions.
+Computed in code: `overall_calc` = plain mean of the non-null dimensions; `score` = 0.5 · `overall` + 0.5 · `overall_calc` (the recommended total).
 
 ## rate-v2 (2026-11-19)
 

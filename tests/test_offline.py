@@ -68,6 +68,9 @@ def test_request_body_v3():
 def test_parse_v3():
     r = s.row_from_response('p', fake_response(V3(layout=None, text=None)), 'm', 'rate-v3')
     assert r['layout'] is None and r['text'] is None and r['overall_calc'] == 8.0 and r['prompt'] == 'rate-v3'
+    assert r['score'] == 8.0
+    r = s.parse_scores_v3(V3(overall=6, content=9, lighting_color=9, composition=9, layout=None, style=9, detail=9, text=None))
+    assert r['overall_calc'] == 9.0 and r['score'] == 7.5            # 0.5 * overall + 0.5 * mean of dims
     r = s.parse_scores_v3(V3(content=2, lighting_color=9, composition=9, layout=9, style=9, detail=9, text=9))
     assert r['overall_calc'] == round((2 + 9 * 6) / 7, 3)   # plain mean, no content cap
     r = s.parse_scores_v3(V3(content=4, lighting_color=10, composition=10, layout=None, style=10, detail=10, text=None))
