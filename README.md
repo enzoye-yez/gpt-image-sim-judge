@@ -19,10 +19,10 @@ the reference's design — the way a designer checks a render against an approve
 - Built from Qwen-Image-PE's design dimensions (lighting / composition / layout / detail) plus content, style and
   text, written in the style of the PRISM-Bench and VQA judge prompts: start at 10 and deduct within fixed bands,
   justification before score, each difference counted in one dimension only, `null` when not applicable.
-- **Use `score` as the similarity score**: `score = 0.5 · overall + 0.5 · overall_calc`, where `overall` is the model's
-  holistic 0–10 integer and `overall_calc` the plain mean of the non-null dimensions. The integer `overall` ties in a
-  third of the pairs; `score` almost never ties and agreed better with the reference judge (validation, part 2). The
-  seven dimensions say *what* differs.
+- **Use `score` (= `overall`, the model's holistic 0–10 integer) as the similarity score.** The seven dimensions say
+  *what* differs; `overall_calc` (plain mean of the non-null dimensions) is still returned for analysis. An earlier
+  release blended them (`0.5 · overall + 0.5 · overall_calc`); it ranked the synthetic perturbations a little better
+  but agreed with people less on a blind test, so it was dropped (validation, part 5).
 - OpenAI Responses API with a strict JSON schema, reasoning effort `low`, images downscaled to ≤ 1024 px long side
   (webp q90, `detail: high`). Default model `gpt-6.1-terra`.
 - `--prompt rate-v2` runs the earlier symmetric prompt (5 aspects + overall), byte-identical to its 2026-11-19 run.
@@ -86,10 +86,10 @@ differ. Spearman within each level against the earlier rate-v2 scores of `gpt-6.
 | nearest-neighbour request | 250 | 1.4 | 0.88 | 0.90 | 0.73 | 0.92 |
 | random pair | 150 | 0.5 | 0.72 | 0.80 | 0.55 | 0.84 |
 
-`score` is best on the four levels where the images are close (the ones that matter for ranking renders of the same
-request); on unrelated pairs the integer `overall` is slightly better, where everything is near 0 anyway. Ties within
-the different-brief level: `overall` 31.8%, `score` 2.1%. On the perturbations, mild-above-strong ordering 0.944 → 0.970
-and identical-copy-above-perturbed 0.960 → 0.991 (`overall` → `score`); re-test change 0.17 → 0.19 points.
+(The `score` column is the earlier blended total `0.5 · overall + 0.5 · overall_calc`.) Against the reference judge
+the blend looked better on the levels where images are close, and it broke ties within the different-brief level
+(`overall` 31.8% → 2.1%); on the perturbations, mild-above-strong ordering went 0.944 → 0.970 and identical-copy-above-
+perturbed 0.960 → 0.991. Part 5 shows that people disagreed: the current `score` is `overall`.
 
 v3 `overall` agrees with v2 sol about as well as v2 terra did, and better on seed-only differences. Level means fall
 monotonically. Among the single dimensions, style / layout / composition track the v2 overall most (ρ ≈ 0.55–0.63 on
@@ -105,6 +105,20 @@ different-brief pairs, and the cap lowered agreement there to 0.64–0.72.
 (Spearman 0.78–0.96, `overall` 0.96), about the same as judging the same pair twice (200 pairs: 0.2–0.4, Spearman
 0.80–0.97, `overall` 0.97). `detail` is the noisiest dimension (re-test ρ 0.80). `layout` switches between `null` and a
 score in 5% of re-tests and 11% of swaps.
+
+**5. Blind human test.** Same request, same model, three renders from different briefs: which candidate looks more
+like the reference? 200 items chosen where v2 and v3 pick differently (plus 50 where they agree); one rater, 100
+items so far, 84 with a clear pick. Agreement with the person (ties count ½):
+
+| total | items where v2 and v3 disagree (61) | all (84) |
+|---|---|---|
+| v3 `overall` (current `score`) | 0.57 | 0.63 |
+| v3 blend `0.5 · overall + 0.5 · overall_calc` | 0.49 | 0.57 |
+| v3 mean / geometric / harmonic mean of the dimensions | 0.46–0.49 | 0.55–0.57 |
+| v2 `overall` | 0.59 | 0.64 |
+
+Single dimensions against the person: content and composition ≈ 0.61, style / lighting_color / detail ≈ 0.51, layout
+0.48, text 0.46. Small samples (intervals ≈ ±0.08); a second rater is pending.
 
 ## Cost
 

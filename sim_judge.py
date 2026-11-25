@@ -113,9 +113,12 @@ DEFAULT_PROMPT = 'rate-v3'
 # kept for code written against the first release
 PROMPT_VERSION, PROMPT, ASPECTS = 'rate-v2', PROMPT_V2, ('content', 'layout', 'color', 'style', 'text')
 
-# score (rate-v3, the recommended total): SCORE_W_OVERALL * overall + (1 - SCORE_W_OVERALL) * overall_calc. The model's
-# holistic `overall` is an integer and ties often (32% of pairs within a level); blending in the mean of the seven
-# dimensions breaks almost all ties (2%) and agreed better with the reference judge (see README).
+# score (rate-v3, the recommended total) = the model's holistic `overall` (SCORE_W_OVERALL = 1.0).
+# An earlier release used 0.5 * overall + 0.5 * overall_calc: it broke the integer ties (32% -> 2%) and ranked the
+# synthetic perturbations a little better, but on a blind human 2AFC test (same-request renders, one rater, 84 decided
+# items) it agreed with people less than `overall` alone (0.57 vs 0.63; 0.49 vs 0.57 where v2 and v3 disagree), and
+# power means of the dimensions (geometric, harmonic, min) did no better: the style / layout / text dimensions were
+# close to chance against people, so any blend adds noise. The dimensions are kept to say *what* differs.
 # overall_calc: plain mean of the non-null dimensions. A content cap (content <= 3 -> cap at content) was tried and dropped: it flattened the many
 # different-brief pairs with low content scores and lowered agreement with the reference judge (see README).
 
@@ -181,7 +184,7 @@ def parse_scores(text):
     return out
 
 
-SCORE_W_OVERALL = 0.5
+SCORE_W_OVERALL = 1.0
 
 
 def overall_calc(scores):
@@ -198,7 +201,7 @@ def parse_scores_v3(text):
         if not isinstance(e, dict): raise ValueError(f'missing {d}')
         out[d] = _score(e.get('score'), d, d in NULLABLE_V3); why[d] = str(e.get('justification', ''))
     out['overall_calc'] = overall_calc(out)
-    out['score'] = round(SCORE_W_OVERALL * out['overall'] + (1 - SCORE_W_OVERALL) * out['overall_calc'], 3)
+    out['score'] = float(out['overall']) if SCORE_W_OVERALL == 1.0 else round(SCORE_W_OVERALL * out['overall'] + (1 - SCORE_W_OVERALL) * out['overall_calc'], 3)
     out['justifications'] = why
     return out
 
