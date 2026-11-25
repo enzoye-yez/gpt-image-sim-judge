@@ -3,7 +3,9 @@
 One file, one job: given a REFERENCE image and a CANDIDATE image, ask a GPT model how closely the candidate reproduces
 the reference's design — the way a designer checks a render against an approved reference — and get 0–10 scores back.
 
-- Prompt **rate-v3** (default), verbatim: [`PROMPT.md`](PROMPT.md) (generated from `sim_judge.py`).
+- Recommended: **rate-v4** (seven single-dimension calls + a fixed total), see [below](#rate-v4-recommended-2026-11-25-one-dimension-per-call--a-fixed-total).
+  rate-v3 lost to both v2 and v4 on the blind human test and is kept for reference only.
+- Prompt **rate-v3** (CLI default), verbatim: [`PROMPT.md`](PROMPT.md) (generated from `sim_judge.py`).
   Seven dimensions, each with a one-sentence justification, plus a holistic `overall`:
 
   | dimension | what it covers |
@@ -26,6 +28,48 @@ the reference's design — the way a designer checks a render against an approve
 - OpenAI Responses API with a strict JSON schema, reasoning effort `low`, images downscaled to ≤ 1024 px long side
   (webp q90, `detail: high`). Default model `gpt-6.1-terra`.
 - `--prompt rate-v2` runs the earlier symmetric prompt (5 aspects + overall), byte-identical to its 2026-11-19 run.
+
+## rate-v4 (recommended, 2026-11-25): one dimension per call + a fixed total
+
+v4 asks seven separate questions, one dimension per call, each answered with a single integer 0–10 (strict JSON
+schema, no justification), REFERENCE vs CANDIDATE, then combines them with a formula fixed before any human data was
+looked at. Prompts, verbatim: [`PROMPT.md`](PROMPT.md#rate-v4-2026-11-25).
+
+| dimension | what it covers | in the total |
+|---|---|---|
+| `content` | what is depicted: subjects, key attributes, setting, secondary elements (for charts/UI: chart and module types, data) | main |
+| `text` | what the readable text says and how much of it there is (10 if neither image has text) | main |
+| `arrangement` | where the main elements sit, how large, viewpoint and crop, grid, alignment, hierarchy, reading order | main |
+| `style` | medium and rendering style, art direction, aesthetic, typeface style | main |
+| `color` | overall palette, color cast, saturation, overall brightness (an object's own color is content) | secondary |
+| `lighting` | light direction and quality, shadows, highlights, light effects | secondary |
+| `detail` | detail density, texture, sharpness | secondary |
+
+```
+total = main^0.85 × secondary^0.15 − 1
+main      = geometric mean of (content, text, arrangement, style), each + 1   → any low main dimension pulls the total down
+secondary = arithmetic mean of (color, lighting, detail), each + 1
+```
+
+```bash
+for d in content text arrangement style color lighting detail; do
+  python sim_judge.py run pairs.jsonl out_v4_$d.jsonl --prompt rate-v4-$d          # or batch-build ... --prompt rate-v4-$d
+done
+python sim_judge.py v4-total out_v4_*.jsonl --out v4_total.jsonl                   # {"pid", "total", <7 dims>}
+```
+
+From Python: `sim_judge.v4_total({"content": 8, "text": 10, ...})`.
+
+**Why v4.** On a blind human test (one rater, round 2: a reference and two candidates, "which looks more like the
+reference?", 125 items with a clear choice; judges gpt-6.1-terra, effort low) the v4 total agreed with the person
+78% of the time, v2 70% and v3 69%; v4 − v2 = +0.076, 95% CI [+0.01, +0.14]. The gain comes from far fewer ties:
+v2 ties on half the items (and is right 90% of the time when it does decide), the v4 total separates 98% of them
+(79% right). Single v4 dimensions alone are weaker (best: arrangement 0.66, lighting 0.61); the combination is what works.
+Caveats: one rater and 125 items; the formula was fixed in advance, not fitted.
+
+**Cost.** Seven calls per pair, each ≈ 2.3–2.6k input tokens (two images ≤ 1024 px + a ~500-token prompt) and
+50–80 output tokens. A real run (2026-11-25, gpt-6.1-sol, 4,127 pairs × 7 = 28,889 calls through the Batch API,
+0 failures) cost about $86 at listed prices (Batch = half price).
 
 ## Run
 

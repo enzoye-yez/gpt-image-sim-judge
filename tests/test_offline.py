@@ -92,6 +92,33 @@ def test_batch_v3_collect_uses_build_prompt():
         assert row['prompt'] == 'rate-v3' and row['overall_calc'] == 8.0
 
 
+
+def test_request_body_v4():
+    for d in s.V4_DIMS:
+        b = s.request_body(A, B, prompt=f'rate-v4-{d}')
+        assert b['input'][0]['content'] == s.V4[f'rate-v4-{d}'] and b['text']['format']['strict'] is True
+        assert [c.get('text') for c in b['input'][1]['content'] if c['type'] == 'input_text'] == ['REFERENCE:', 'CANDIDATE:']
+    assert set(s.V4) == {f'rate-v4-{d}' for d in s.V4_DIMS}
+
+
+def test_parse_v4_and_total():
+    r = s.row_from_response('p', fake_response('{"score": 7}'), 'm', prompt='rate-v4-content')
+    assert r['score'] == 7.0 and r['prompt'] == 'rate-v4-content'
+    same = {d: 10 for d in s.V4_DIMS}
+    assert abs(s.v4_total(same) - 10) < 1e-9 and abs(s.v4_total({d: 0 for d in s.V4_DIMS})) < 1e-9
+    one_low_main, one_low_sec = dict(same, content=2), dict(same, color=2)
+    assert s.v4_total(one_low_main) < s.v4_total(one_low_sec) < 10      # a low main dimension costs more
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d); files = []
+        for i, dim in enumerate(s.V4_DIMS):
+            f = d / f'out_{dim}.jsonl'; files.append(str(f))
+            rows = [{'pid': 'p0', 'score': 8, 'prompt': f'rate-v4-{dim}'}]
+            if i < 3: rows.append({'pid': 'p1', 'score': 9, 'prompt': f'rate-v4-{dim}'})     # p1 lacks four dimensions
+            f.write_text(''.join(json.dumps(x) + '\n' for x in rows))
+        s.cmd_v4_total(types.SimpleNamespace(files=files, out=str(d / 'total.jsonl')))
+        rows = [json.loads(l) for l in open(d / 'total.jsonl')]
+        assert [r['pid'] for r in rows] == ['p0'] and abs(rows[0]['total'] - 8) < 1e-9
+
 if __name__ == '__main__':
     for name, fn in list(globals().items()):
         if name.startswith('test_'): fn(); print('ok', name)

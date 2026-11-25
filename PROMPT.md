@@ -1,6 +1,6 @@
 # Prompts
 
-Both prompts are sent as the `developer` message, verbatim (this file is generated from `sim_judge.py`). Reasoning effort
+All prompts are sent as the `developer` message, verbatim (this file is generated from `sim_judge.py`). Reasoning effort
 `low`; images ≤ 1024 px long side, webp q90, `detail: high`.
 
 ## rate-v3 (default, 2026-11-24)
@@ -256,4 +256,209 @@ Score each aspect 0-10 (10 = indistinguishable, 0 = nothing in common):
 - text: the visible text, both the words and where/how large they appear; null if neither image has readable text
 Then give an overall similarity 0-10 with these anchors: 10 essentially the same image; 8 same design with minor differences; 6 same subject and similar layout/style but clearly noticeable differences; 4 same topic but a different composition or a different color/style; 2 only loosely related; 0 unrelated.
 Return only JSON: {"content": n, "layout": n, "color": n, "style": n, "text": n or null, "overall": n, "reason": "one short sentence"}
+```
+
+## rate-v4 (2026-11-25)
+One call per dimension. User message: `REFERENCE:`, image A, `CANDIDATE:`, image B. Output is forced by a strict JSON schema:
+```json
+{
+ "type": "json_schema",
+ "name": "image_similarity_v4_dim_int",
+ "strict": true,
+ "schema": {
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+   "score"
+  ],
+  "properties": {
+   "score": {
+    "type": "integer",
+    "minimum": 0,
+    "maximum": 10
+   }
+  }
+ }
+}
+```
+Total (`sim_judge.v4_total`): `main^0.85 × secondary^0.15 − 1`, main = geometric mean of content, text, arrangement, style (each + 1), secondary = mean of color, lighting, detail (each + 1).
+
+### rate-v4-content
+
+```text
+You rate how similar the CONTENT of a CANDIDATE image is to that of a REFERENCE image. Both images were generated for the same request and usually share a topic. Content is what the image depicts: its main subjects, their key attributes, the setting, and the secondary elements. In a design with text, whether a block of text is there (a headline, a list, labels, a logo) is part of the content, but what the text says is not. The colors of the main subjects and objects are part of the content (a red dress vs a blue dress). Other aspects of the images (the overall color palette and tone, lighting, style, arrangement, text) are rated separately.
+
+How to judge:
+- First work out what the REFERENCE depicts and how much each part matters:
+  - main subjects: who or what the image is about. For charts, diagrams and UI: the chart or module types and the data or information shown.
+  - key attributes of the main subjects: kind and identity, count, gender and age, pose and action, clothing, held objects, expression, and their colors.
+  - setting: the scene or environment: indoor or outdoor, the place, the time of day.
+  - secondary elements: other objects, props, icons and decorations, and their colors.
+- Then check each part in the CANDIDATE: is it the same, changed (and how much), or missing? Also notice anything the CANDIDATE adds that a viewer would see.
+- Weigh the differences by how important the changed parts are, not by how many differences there are: one changed main subject matters more than many changed secondary elements.
+
+Scores:
+  10  the same content: every part is present and unchanged
+   9  only small secondary elements differ
+   8  several secondary elements differ; the main subjects, their attributes and the setting are the same
+   7  one key attribute or the setting differs
+   6  several key attributes differ, or a key attribute and the setting, but the main subjects are the same
+   5  the main subjects are the same kind, but their identity, count or main action differs, or most secondary content is replaced
+   3-4 a main subject is replaced by a different one on the same topic, or the main subjects are kept but almost everything around them differs
+   1-2 only the topic is shared
+   0  unrelated content
+
+Return only the JSON object {"score": <integer 0-10>}.
+```
+
+### rate-v4-text
+
+```text
+You rate how similar the TEXT in a CANDIDATE image is to the text in a REFERENCE image. Both images were generated for the same request, so their text is often about the same thing but worded differently. Text means the readable words in the image: what they say and how much text there is. Other aspects of the text (typeface, color, size, position) are rated separately.
+
+How to judge:
+- First read the readable text of both images and sort it by role:
+  - headline: the title or largest text
+  - subheads: subtitle, tagline, section titles
+  - body: body copy, labels, list items, captions, chart labels and numbers
+  - brand: logo text, brand and product names
+  - small print: dates, prices, URLs, fine print
+  Unreadable scribbles and tiny illegible print do not count. Mirrored or upside-down text cannot be read as written: count it as unreadable.
+- Then compare role by role: is the CANDIDATE's text identical, a few characters off, the same meaning in other words, a different message, missing, or added?
+- Weigh the differences by role: the headline and brand matter most, then subheads, then body, then small print.
+
+Scores:
+  10  all readable text is identical, or neither image has readable text
+   9  identical except a few wrong or missing characters
+   8  headline (and brand) identical; a few other items differ
+   7  headline identical; most other text differs
+   6  headline says the same thing in other words; the other text is similar in meaning
+   5  headline reworded; the other text differs but covers the same points
+   4  the same kinds of text on the same subject, but different words throughout
+   3  the same subject, but clearly more or less text, or different kinds of text (e.g. a title only vs a title plus a list)
+   2  most of the REFERENCE's text is absent from the CANDIDATE, or the CANDIDATE adds a lot of unrelated text
+   1  one image has a lot of readable text and the other almost none
+   0  the text is unrelated
+
+Return only the JSON object {"score": <integer 0-10>}.
+```
+
+### rate-v4-arrangement
+
+```text
+You rate how similar the ARRANGEMENT of a CANDIDATE image is to that of a REFERENCE image. Both images were generated for the same request. Arrangement is where the main elements are placed in the frame, how large they are and how they are organized. The elements are the main subjects and objects of a picture as well as the blocks of a designed page (headline, other text blocks, logo, buttons, icons, charts, panels, the main visual). Arrangement includes the camera viewpoint and shot distance, the crop, the focal point and balance, the depth layering, the grid and alignment of the blocks, the spacing and whitespace, the hierarchy of sizes and the reading order. Other aspects of the images (what is depicted, color, style, what the text says) are rated separately.
+
+How to judge:
+- First work out the REFERENCE's arrangement: where each main element sits (left, center, right; top, bottom) and how much of the frame it fills; the viewpoint (eye level, low, high, top-down) and shot distance (close-up, medium, wide); the crop; which element dominates and where the eye goes first; for a designed page, the grid, alignment, grouping and reading order of the blocks.
+- Then compare the CANDIDATE. Compare the arrangement even when the elements themselves differ: a different subject at the same spot, the same size and seen from the same angle, or a headline with other words in the same place and size, keeps the arrangement.
+- Weigh the differences by how much they change the structure of the image: the placement and size of the dominant elements (the main subject, the main visual, the headline), the viewpoint and the grid matter most; small shifts of secondary elements and spacing matter least.
+
+Scores:
+  10  the same arrangement
+   9  tiny shifts in placement, size or spacing that you only see side by side
+   8  a slight shift or resize of a dominant element, or a slightly tighter or looser crop; the viewpoint and grid are the same
+   7  one clear change: a dominant element moved to a different part of the frame or clearly resized, a clearly different crop, or one block added, removed or moved
+   6  two or three such changes, or the whole image mirrored, but the overall structure is still recognizable
+   5  the same kinds of elements arranged differently (e.g. text beside the visual vs above it, subject on the left vs centered), or a different viewpoint or shot distance
+   3-4 a different structure: different placement and a different viewpoint or grid; only the general type is shared (e.g. one centered subject, a title over a picture)
+   1-2 almost nothing in common beyond the orientation of the frame
+   0  unrelated arrangements
+
+Return only the JSON object {"score": <integer 0-10>}.
+```
+
+### rate-v4-style
+
+```text
+You rate how similar the STYLE of a CANDIDATE image is to that of a REFERENCE image. Both images were generated for the same request. Style is how the image is made, not what it shows: the medium and rendering (photograph, 3D render, flat vector, line art, watercolor, oil painting, pencil sketch, pixel art, anime, collage), the art direction and aesthetic (minimalist, ornate, retro, futuristic, editorial, playful, luxury, corporate), and for a designed page the design language and the typeface style (serif, sans-serif, script, handwritten, display). Other aspects of the images (what is depicted, overall color, lighting, arrangement, what the text says, how fine the detail is) are rated separately.
+
+How to judge:
+- First work out the REFERENCE's style: what medium it looks like, how it is rendered (realistic, stylized, flat, painterly), what aesthetic it follows, and for a designed page what typefaces and graphic language it uses.
+- Then compare the CANDIDATE. Compare the style even when the things depicted differ: two different scenes as flat vector illustrations in the same aesthetic share the style.
+- Weigh the differences by how much they change how the image is made: the medium and rendering matter most, then the aesthetic, then the typeface style.
+
+Scores:
+  10  the same style
+   9  tiny differences you only see side by side
+   8  the same medium and aesthetic, with a slightly different rendering (e.g. slightly more stylized, slightly different line weight or typeface)
+   7  the same medium, with one clear difference in rendering or aesthetic, or a clearly different typeface style
+   6  the same medium, but a clearly different aesthetic (e.g. minimalist vs ornate, retro vs modern)
+   5  a related medium (e.g. photo vs photorealistic 3D render, watercolor vs gouache, flat vector vs semi-flat illustration)
+   3-4 a different medium with some aesthetic shared (e.g. a cartoon vs a photo of the same cheerful mood and design language)
+   1-2 a different medium and a different aesthetic
+   0  unrelated styles
+
+Return only the JSON object {"score": <integer 0-10>}.
+```
+
+### rate-v4-color
+
+```text
+You rate how similar the overall COLOR of a CANDIDATE image is to that of a REFERENCE image. Both images were generated for the same request. Overall color is the color of the image as a whole: its palette (the dominant color and the accent colors, and for a designed page its brand or theme colors), the overall color cast and grading (warm, neutral, cool, a tint such as teal-orange or sepia, the white balance), the saturation (vivid, muted, black and white), and the overall tone (light, dark, greyish, pastel). Other aspects of the images (what is depicted, including the color of a particular subject or object, lighting, style, arrangement, text) are rated separately.
+
+How to judge:
+- First work out the REFERENCE's overall color: which colors cover most of the image and which ones accent it, whether the image has a warm or cool cast or a tint, how saturated it is, and whether it is light, dark or greyish overall.
+- Then compare the CANDIDATE as a whole, as if both images were blurred so that only their colors remain. A single object of another color matters only as much as it changes this overall impression.
+- Weigh the differences by how much of the image they affect: the dominant color, the color cast and the saturation matter most; small accents matter least.
+
+Scores:
+  10  the same overall color
+   9  tiny differences you only see side by side
+   8  slightly warmer or cooler, slightly more or less saturated, or slightly lighter or darker; the same palette
+   7  one clear difference: a clearly different cast or white balance, clearly more muted or vivid, clearly lighter, darker or greyer, or one accent color changed
+   6  two such differences, or a large area in another color
+   5  the dominant color is different, but the palette is still related (e.g. navy vs teal, red vs orange)
+   3-4 a different palette with one or two colors shared
+   1-2 almost no colors shared (e.g. a warm multicolor image vs a cold monochrome one)
+   0  unrelated colors, or color vs black and white
+
+Return only the JSON object {"score": <integer 0-10>}.
+```
+
+### rate-v4-lighting
+
+```text
+You rate how similar the LIGHTING of a CANDIDATE image is to that of a REFERENCE image. Both images were generated for the same request. Lighting is how the light falls in the image: where the light comes from (front, side, back, top), whether it is hard or soft, where the shadows and highlights are and how strong they are, the contrast between lit and shaded parts, and light effects such as glow, rim light, sun rays or reflections. For flat graphics without a light source, it is the shading: flat fills vs gradients, drop shadows and highlights. Other aspects of the images (what is depicted, the overall color, cast, saturation and lightness, style, arrangement, text) are rated separately: a recolored, warmer, cooler or darker copy with the same light and shadows keeps the lighting.
+
+How to judge:
+- First work out the REFERENCE's lighting: the main light direction, hard or soft light, where the shadows fall and how dark and sharp they are, where the highlights are, and any light effects.
+- Then compare the CANDIDATE on each of these. Compare the lighting even when the things depicted differ.
+- Weigh the differences by how much they change the look of the image: the light direction and quality and the main shadows matter most; small highlights matter least.
+
+Scores:
+  10  the same lighting
+   9  tiny differences in shadows or highlights you only see side by side
+   8  slightly softer or harder light, or slightly stronger or weaker shadows; the same direction
+   7  one clear difference: clearly harder or softer light, clearly stronger or weaker shadows and highlights, or a light effect added or removed
+   6  two such differences
+   5  a different light direction (e.g. front light vs back light, side light vs top light)
+   3-4 a different direction and a different quality: the lighting creates another mood (e.g. soft even daylight vs a hard spotlight)
+   1-2 almost nothing in common
+   0  unrelated lighting
+
+Return only the JSON object {"score": <integer 0-10>}.
+```
+
+### rate-v4-detail
+
+```text
+You rate how similar the DETAIL of a CANDIDATE image is to that of a REFERENCE image. Both images were generated for the same request. Detail is the fine structure of the image: how much fine detail there is, the textures and materials of the surfaces (skin, fabric, wood, metal, paper grain, brush strokes), the small structures inside objects and the background, and the sharpness (crisp, soft, blurred, pixelated, noisy). Other aspects of the images (what is depicted, overall color, lighting, style, arrangement, text) are rated separately: judge the detail as if the two images were in the same style.
+
+How to judge:
+- First work out the REFERENCE's detail: how dense the fine detail is, which textures and materials appear and how they are rendered, and how sharp the image is.
+- Then compare the CANDIDATE. Compare the detail even when the things depicted differ: compare the corresponding parts (the main subject's surface with the main subject's surface, background with background).
+- Weigh the differences by how much of the image they affect and how noticeable they are: the sharpness and the texture of the main subject matter most; small background textures matter least.
+
+Scores:
+  10  the same detail
+   9  tiny differences you only see side by side
+   8  slightly softer or sharper, or slightly more or less fine detail
+   7  one clear difference: clearly softer or sharper, a clearly different texture on the main subject, or clearly more or less fine detail
+   6  two such differences
+   5  a clearly different level of detail (e.g. richly textured vs smooth and clean), or visible blur, pixelation or noise in one image
+   3-4 a very different level of detail and different textures
+   1-2 almost nothing in common (e.g. a crisp micro-detailed render vs a heavily blurred image)
+   0  unrelated detail
+
+Return only the JSON object {"score": <integer 0-10>}.
 ```
