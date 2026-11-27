@@ -1,0 +1,510 @@
+{
+ "content": {
+  "type": "json_schema",
+  "name": "image_content_c05r4",
+  "strict": true,
+  "schema": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "reference_reading",
+    "issues",
+    "score"
+   ],
+   "properties": {
+    "reference_reading": {
+     "type": "string"
+    },
+    "issues": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "rubric",
+       "tier",
+       "severity",
+       "description"
+      ],
+      "properties": {
+       "rubric": {
+        "type": "string",
+        "enum": [
+         "presence",
+         "identity",
+         "appearance"
+        ]
+       },
+       "tier": {
+        "type": "string",
+        "enum": [
+         "main",
+         "secondary",
+         "detail"
+        ]
+       },
+       "severity": {
+        "type": "string",
+        "enum": [
+         "minor",
+         "major"
+        ]
+       },
+       "description": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "score": {
+     "type": "integer",
+     "enum": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+     ]
+    }
+   }
+  }
+ },
+ "composition": {
+  "type": "json_schema",
+  "name": "image_composition_c05",
+  "strict": true,
+  "schema": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "reference_reading",
+    "issues",
+    "score"
+   ],
+   "properties": {
+    "reference_reading": {
+     "type": "string"
+    },
+    "issues": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "rubric",
+       "tier",
+       "severity",
+       "description"
+      ],
+      "properties": {
+       "rubric": {
+        "type": "string",
+        "enum": [
+         "placement",
+         "scale",
+         "viewpoint",
+         "structure",
+         "layout"
+        ]
+       },
+       "tier": {
+        "type": "string",
+        "enum": [
+         "main",
+         "secondary",
+         "detail"
+        ]
+       },
+       "severity": {
+        "type": "string",
+        "enum": [
+         "minor",
+         "major"
+        ]
+       },
+       "description": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "score": {
+     "type": "integer",
+     "enum": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+     ]
+    }
+   }
+  }
+ },
+ "layout": {
+  "type": "json_schema",
+  "name": "image_layout_l05",
+  "strict": true,
+  "schema": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "reference_reading",
+    "issues",
+    "score"
+   ],
+   "properties": {
+    "reference_reading": {
+     "type": "string"
+    },
+    "issues": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "rubric",
+       "tier",
+       "severity",
+       "description"
+      ],
+      "properties": {
+       "rubric": {
+        "type": "string",
+        "enum": [
+         "position",
+         "size",
+         "grid",
+         "alignment",
+         "flow"
+        ]
+       },
+       "tier": {
+        "type": "string",
+        "enum": [
+         "main",
+         "secondary",
+         "detail"
+        ]
+       },
+       "severity": {
+        "type": "string",
+        "enum": [
+         "minor",
+         "major"
+        ]
+       },
+       "description": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "score": {
+     "type": "integer",
+     "enum": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+     ]
+    }
+   }
+  }
+ },
+ "text": {
+  "type": "json_schema",
+  "name": "image_text_v7",
+  "strict": true,
+  "schema": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "reading",
+    "score"
+   ],
+   "properties": {
+    "reading": {
+     "type": "string"
+    },
+    "score": {
+     "type": "integer",
+     "enum": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+     ]
+    }
+   }
+  }
+ },
+ "lighting": {
+  "type": "json_schema",
+  "name": "image_lighting_v5",
+  "strict": true,
+  "schema": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "reading",
+    "issues",
+    "score"
+   ],
+   "properties": {
+    "reading": {
+     "type": "string"
+    },
+    "issues": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "aspect",
+       "importance",
+       "severity",
+       "where",
+       "description"
+      ],
+      "properties": {
+       "aspect": {
+        "type": "string",
+        "enum": [
+         "key_light",
+         "light_effects",
+         "tone_color",
+         "plausibility"
+        ]
+       },
+       "importance": {
+        "type": "string",
+        "enum": [
+         "signature",
+         "supporting",
+         "detail"
+        ]
+       },
+       "severity": {
+        "type": "string",
+        "enum": [
+         "major",
+         "minor"
+        ]
+       },
+       "where": {
+        "type": "string"
+       },
+       "description": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "score": {
+     "type": "integer",
+     "enum": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+     ]
+    }
+   }
+  }
+ },
+ "style": {
+  "type": "json_schema",
+  "name": "image_style_v5",
+  "strict": true,
+  "schema": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "reading",
+    "issues",
+    "score"
+   ],
+   "properties": {
+    "reading": {
+     "type": "string"
+    },
+    "issues": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "aspect",
+       "importance",
+       "severity",
+       "where",
+       "description"
+      ],
+      "properties": {
+       "aspect": {
+        "type": "string",
+        "enum": [
+         "medium",
+         "style_words",
+         "mood"
+        ]
+       },
+       "importance": {
+        "type": "string",
+        "enum": [
+         "signature",
+         "supporting"
+        ]
+       },
+       "severity": {
+        "type": "string",
+        "enum": [
+         "major",
+         "minor"
+        ]
+       },
+       "where": {
+        "type": "string"
+       },
+       "description": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "score": {
+     "type": "integer",
+     "enum": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+     ]
+    }
+   }
+  }
+ },
+ "integrity": {
+  "type": "json_schema",
+  "name": "image_integrity_v11",
+  "strict": true,
+  "schema": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "reading",
+    "issues",
+    "score"
+   ],
+   "properties": {
+    "reading": {
+     "type": "string"
+    },
+    "issues": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "mechanism",
+       "importance",
+       "severity",
+       "where",
+       "description",
+       "in_reference"
+      ],
+      "properties": {
+       "mechanism": {
+        "type": "string",
+        "enum": [
+         "count_ownership",
+         "clipping",
+         "continuity",
+         "surface",
+         "foreign_duplicate",
+         "deformed",
+         "other"
+        ]
+       },
+       "importance": {
+        "type": "string",
+        "enum": [
+         "main",
+         "secondary",
+         "background"
+        ]
+       },
+       "severity": {
+        "type": "string",
+        "enum": [
+         "clear",
+         "slight"
+        ]
+       },
+       "where": {
+        "type": "string"
+       },
+       "description": {
+        "type": "string"
+       },
+       "in_reference": {
+        "type": "boolean"
+       }
+      }
+     }
+    },
+    "score": {
+     "type": "integer",
+     "enum": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+     ]
+    }
+   }
+  }
+ },
+ "design_gate": {
+  "type": "json_schema",
+  "name": "gd_screen",
+  "strict": true,
+  "schema": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "is_design",
+    "kind",
+    "blocks",
+    "reason"
+   ],
+   "properties": {
+    "is_design": {
+     "type": "boolean"
+    },
+    "kind": {
+     "type": "string"
+    },
+    "blocks": {
+     "type": "integer"
+    },
+    "reason": {
+     "type": "string"
+    }
+   }
+  }
+ }
+}

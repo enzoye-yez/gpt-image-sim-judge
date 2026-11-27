@@ -119,6 +119,75 @@ def test_parse_v4_and_total():
         rows = [json.loads(l) for l in open(d / 'total.jsonl')]
         assert [r['pid'] for r in rows] == ['p0'] and abs(rows[0]['total'] - 8) < 1e-9
 
+
+# ---------------------------------------------------------------- fidelity_judge.py (seven 0-5 dimensions)
+import fidelity_judge as F
+
+PAIR = {'pid': 'p0', 'image_a': A, 'image_b': B, 'query': 'a red mug on a desk'}
+OCR = {A: [{'text': 'HELLO WORLD', 'score': 0.9, 'box': [0.1, 0.1, 0.5, 0.2]}], B: [{'text': 'HELO', 'score': 0.9, 'box': [0.1, 0.5, 0.3, 0.6]}]}
+
+
+def test_fidelity_assets():
+    assert set(F.SCHEMAS) == set(F.DIMS) | {'design_gate'}
+    for d in F.DIMS:
+        assert F.PROMPTS[d].strip() and (F.HERE / 'prompts' / f'{d}.zh.md').exists()
+        sc = F.SCHEMAS[d]['schema']
+        assert F.SCHEMAS[d]['strict'] and sc['properties']['score']['enum'] == [0, 1, 2, 3, 4, 5] and 'score' in sc['required']
+
+
+def test_fidelity_request_bodies():
+    for d in F.DIMS:
+        b = F.request_body(d, PAIR, ocr=OCR)
+        assert b['model'] == 'gpt-6.2-sol' and b['reasoning'] == {'effort': 'medium'} and b['store'] is False
+        assert b['input'][0] == {'role': 'developer', 'content': F.PROMPTS[d]} and b['text']['format'] == F.SCHEMAS[d]
+        texts = [c['text'] for c in b['input'][1]['content'] if c['type'] == 'input_text']
+        assert [c['type'] for c in b['input'][1]['content']].count('input_image') == 2
+        assert texts[0].startswith('QUERY: ') == (d in F.NEEDS_QUERY)
+        if d == 'text':
+            assert texts[-2].startswith('OCR of the REFERENCE:') and '(30%, 15%) HELLO WORLD' in texts[-2] and 'HELO' in texts[-1]
+    try: F.request_body('lighting', {**PAIR, 'query': ''}); raise AssertionError('should need a query')
+    except ValueError: pass
+    g = F.gate_body(A)
+    assert g['model'] == 'gpt-6-luna' and g['input'][1]['content'][0]['detail'] == 'low'
+
+
+def test_fidelity_parse_and_skip():
+    r = F.row_from_response('text', 'p0', fake_response('{"reading": "same words", "score": 4}', 'gpt-6.2-sol'))
+    assert r['score'] == 4 and r['dim'] == 'text' and r['version'] == F.VERSION['text']
+    for bad in ('{"reading": "x", "score": 7}', '{"reading": "x"}'):
+        try: F.row_from_response('style', 'p0', fake_response(bad)); raise AssertionError('should fail')
+        except ValueError: pass
+    assert F.skip_reason('layout', {**PAIR, 'is_design': False}) == 'not a design'
+    assert F.skip_reason('layout', PAIR, gate={A: True}) is None
+    try: F.skip_reason('layout', PAIR); raise AssertionError('layout without a gate result should fail')
+    except ValueError: pass
+    assert F.skip_reason('text', PAIR, ocr=OCR) is None
+    assert F.skip_reason('text', PAIR, ocr={A: [], B: [{'text': 'ab', 'box': [0, 0, 1, 1]}]}) == 'no text'
+    assert F.skip_reason('text', PAIR) is None                       # no OCR given: judge anyway
+    assert F.parse_dims('all') == F.DIMS and F.parse_dims('text, style') == ('text', 'style')
+
+
+def test_fidelity_batch_roundtrip_and_merge():
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d); pairs = d / 'pairs.jsonl'
+        pairs.write_text(''.join(json.dumps({**PAIR, 'pid': f'p{i}', 'is_design': i == 0}) + '\n' for i in range(2)))
+        ocr = d / 'ocr.jsonl'; ocr.write_text(''.join(json.dumps({'path': k, 'lines': v}) + '\n' for k, v in OCR.items()))
+        F.cmd_batch_build(types.SimpleNamespace(pairs=str(pairs), work=str(d / 'w'), dims='layout,text', model='gpt-6.2-sol',
+                                                effort='medium', ocr=[str(ocr)], gate=None))
+        lines = [json.loads(l) for l in open(d / 'w/in/shard-000.jsonl')]
+        assert sorted(l['custom_id'] for l in lines) == ['layout|p0', 'text|p0', 'text|p1']      # p1 is not a design
+        (d / 'w/out').mkdir()
+        (d / 'w/out/shard-000.jsonl').write_text(''.join(json.dumps({'custom_id': l['custom_id'], 'response': {'status_code': 200,
+            'body': fake_response('{"reference_reading": "x", "issues": [], "score": 3}' if l['custom_id'].startswith('layout')
+                                  else '{"reading": "x", "score": 5}', 'gpt-6.2-sol')}}) + '\n' for l in lines))
+        F.cmd_batch_collect(types.SimpleNamespace(work=str(d / 'w'), outdir=str(d / 'o')))
+        lay = {r['pid']: r for r in map(json.loads, open(d / 'o/layout.jsonl'))}
+        assert lay['p0']['score'] == 3 and lay['p1']['score'] is None and lay['p1']['skipped'] == 'not a design'
+        F.cmd_merge(types.SimpleNamespace(outdir=str(d / 'o'), out=str(d / 'scores.jsonl')))
+        m = {r['pid']: r for r in map(json.loads, open(d / 'scores.jsonl'))}
+        assert m['p0']['layout'] == 3 and m['p0']['text'] == 5 and m['p1']['layout'] is None and m['p0']['content'] is None
+
+
 if __name__ == '__main__':
     for name, fn in list(globals().items()):
         if name.startswith('test_'): fn(); print('ok', name)

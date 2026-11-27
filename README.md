@@ -1,9 +1,120 @@
 # GPT image-similarity judge
 
-One file, one job: given a REFERENCE image and a CANDIDATE image, ask a GPT model how closely the candidate reproduces
-the reference's design — the way a designer checks a render against an approved reference — and get 0–10 scores back.
+Given a REFERENCE image and a CANDIDATE image, ask a GPT model how closely the candidate reproduces the reference.
 
-- Recommended: **rate-v4** (seven single-dimension calls + a fixed total), see [below](#rate-v4-recommended-2026-11-25-one-dimension-per-call--a-fixed-total).
+- **Recommended (2026-11-27): the reconstruction-fidelity judges** in [`fidelity_judge.py`](fidelity_judge.py): seven
+  single-dimension judges, each an integer 0–5 with a written reading and (for most dimensions) a list of issues.
+  See [the next section](#reconstruction-fidelity-judges-2026-11-27-recommended).
+- Older single-file judges in [`sim_judge.py`](sim_judge.py), kept working and unchanged: rate-v4 (seven 0–10
+  dimensions + a fixed total), rate-v3, rate-v2. They are described further down.
+
+## Reconstruction-fidelity judges (2026-11-27, recommended)
+
+The CANDIDATE is meant to reproduce the REFERENCE (for example, an image regenerated from a written description of the
+REFERENCE). Each dimension is one call with its own prompt and strict JSON schema. The judge first states what the
+REFERENCE shows. It then lists the differences it finds, each tagged by importance (main / secondary / detail) and
+severity (major / minor). Finally it picks a score from 5 down; the score is set by the most serious issue, not by
+counting issues.
+
+| dimension | checks | does **not** check (rated elsewhere) | inputs |
+|---|---|---|---|
+| `content` | subjects present or missing, still the same thing, appearance (design, shape, pose, own colors, parts) | position and size, text, lighting, style, breakage | REFERENCE, CANDIDATE |
+| `composition` | placement, scale and crop, viewpoint, the subject's overall structure (pose, orientation, grouping), arrangement | what the things are, whether they are missing, colors | REFERENCE, CANDIDATE |
+| `layout` | graphic designs only: block positions, size hierarchy, grid and grouping, alignment and spacing, reading order | what a block shows or says, its colors, composition inside a photo block | REFERENCE, CANDIDATE, design gate |
+| `text` | what the readable text says: key text (requested text, headline, brand), other text, incidental small text | font, color, size, position, how many times a text repeats, text partly hidden or cropped | QUERY, REFERENCE, CANDIDATE, OCR lines |
+| `lighting` | key light, light effects (shadows, highlights, reflections, glow), tone and light color, plausibility | what is lit, palette of objects, style | QUERY, REFERENCE, CANDIDATE |
+| `style` | medium (photo, 3D, illustration, ...), style words (minimalist, cinematic, ...), overall mood | texture, brush strokes, grain, finish, content | QUERY, REFERENCE, CANDIDATE |
+| `integrity` | whether the CANDIDATE is drawn broken: counts and ownership of limbs, clipping, continuity, surfaces, foreign or duplicated parts, deformation | text of any kind; differences that are themselves coherent; oddities the REFERENCE shares | QUERY, REFERENCE, CANDIDATE |
+
+- **Prompts.** The English prompts sent to the model are in [`fidelity/prompts/<dim>.md`](fidelity/prompts). Chinese
+  reading copies are in `<dim>.zh.md`. The JSON schemas are in [`fidelity/schemas.json`](fidelity/schemas.json).
+- **Model settings.** `gpt-6.2-sol`, reasoning effort `medium`, images downscaled to a 1024 px long side (WebP q90,
+  `detail: high`). This is the same as `sim_judge.encode_image`.
+- **Layout: design gate.** `layout` only runs when the REFERENCE is a graphic design (poster, ad, card, infographic,
+  slide, UI, ...). Give `"is_design": true/false` in the pair. If it is missing, the design gate decides: one
+  `gpt-6-luna` call per REFERENCE, prompt [`fidelity/prompts/design_gate.md`](fidelity/prompts/design_gate.md). Pairs
+  that are not designs get `{"score": null, "skipped": "not a design"}`.
+- **Text: OCR.** `text` gets the RapidOCR lines of both images (top to bottom, with rough positions) as leads. The
+  judge is told to trust the images over the OCR. If OCR finds fewer than 3 characters in both images, the pair is
+  skipped (`"skipped": "no text"`). Without `--ocr` the judge still runs, but without OCR lines.
+- **QUERY.** The generation request behind the images. `text`, `lighting`, `style` and `integrity` read it to know
+  what was intended.
+
+### Usage
+
+```bash
+pip install -r requirements.txt                  # + rapidocr_onnxruntime opencv-python-headless numpy for the text dimension
+export OPENAI_API_KEY=...                        # or OPENAI_API_KEY_FILE=path
+# pairs.jsonl: {"pid": "p1", "image_a": "ref.png", "image_b": "cand.png", "query": "a poster for ...", "is_design": true}
+python fidelity_judge.py ocr pairs.jsonl ocr.jsonl                                  # OCR lines for the text dimension
+python fidelity_judge.py run pairs.jsonl out/ --dims all --ocr ocr.jsonl          # or --dims content,composition
+python fidelity_judge.py merge out/ --out scores.jsonl                             # {"pid", "content", ..., "integrity"}
+```
+
+- Output: `out/<dim>.jsonl`, one row per pair: `{"pid", "dim", "score": 0-5, "reading" | "reference_reading",
+  "issues": [...], "version", "model", "usage"}`. `run` is resumable; failed rows get `"error"` and are retried on the
+  next `run`.
+- Batch API (half price, up to 24 h):
+  1. Run `gate` first if you need layout and the pairs lack `is_design`.
+  2. Run `batch-build pairs.jsonl work/ --dims all --ocr ocr.jsonl --gate out/design_gate.jsonl`.
+  3. Run `batch-submit work/`, then `batch-poll work/` until the shards are done.
+  4. Run `batch-collect work/ out/`.
+- Cost: about $3.3 per 400 pairs per dimension at `gpt-6.2-sol` / medium (about 3.5–5k input and 0.1–0.8k output
+  tokens per call). The prices assumed are $2 / 1M input, $0.1 / 1M cached input and $10 / 1M output.
+
+### Total (TBD)
+
+How the seven scores combine into one fidelity score is still being designed. This section will define it.
+Until then, use the per-dimension scores (`merge`).
+
+### How each dimension was validated
+
+The test material is reconstructions of text-to-image outputs: 100–120 reference images, with 4–5 reconstructions
+each, from different models and seeds. "ICC" is ICC(1) over reference images: it shows how much of the score is set
+by the reference rather than by the individual reconstruction. "Retest" means the same pairs judged again. Where
+people labelled the pairs, AUC is the probability that a pair labelled bad scores lower than a pair labelled good.
+
+- **content** (400 pairs)
+  - Scores: mostly 4 (72%), mean 3.7. A score of 3 or less needs a concrete reason, such as a main subject redesigned
+    (an aircraft's wing layout changed), a secondary subject missing, or a secondary subject turned into another kind
+    of thing.
+  - Redrawn faces and patterns count as minor.
+  - ICC 0.49. $3.46.
+  - Limitation: it separates reconstructions of the same reference only modestly.
+- **composition** (400 pairs)
+  - Scores: 4 / 3 / 2 = 30% / 32% / 38%, mean 2.91.
+  - Pairs that reviewers had flagged for composition score lowest (2.68).
+  - Spearman with content is 0.22, so the two dimensions are complementary.
+  - ICC 0.56. Two seeds of the same model differ by 0.32 on average. $3.59.
+- **layout** (400 pairs, 100 design references)
+  - Scores: 5 / 4 / 3 / 2 = 2% / 49% / 19% / 30%, mean 3.22.
+  - The score matches the most serious issue in every pair: 4 = minor issues only, 3 = exactly one major issue,
+    2 = two or more major issues.
+  - ICC 0.59. Two seeds agree exactly 76% of the time. Spearman with composition on shared designs is 0.76. $3.31.
+- **text** (457 pairs, 120 references with text: short, medium and long)
+  - Within-reference Spearman with an OCR text-similarity score is 0.56 [0.44, 0.66]. The OCR score counts repeats
+    and incidental text, which this judge deliberately ignores.
+  - Retest: 92% identical, 100% within 1 point. $3.28.
+  - Repeated, partly hidden or cropped text and missing incidental text score 5. Garbled or misspelled key text and
+    replaced signs score 0–2. A typo in the REFERENCE that the CANDIDATE spells correctly counts as the same.
+- **lighting** (328 pairs, 167 labelled by a person as reproduced or not)
+  - AUC 0.77. Within the same reference: 0.66.
+  - Mean 2.82 for "not reproduced", 3.68 for "reproduced".
+  - Losing the signature light (dappled shadows becoming flat light, back light becoming front light) costs 1–2 points.
+- **style** (316 pairs, 90 labelled)
+  - AUC 0.62. Within the same reference: 0.67.
+  - Mean 3.45 for "not reproduced", 3.91 for "reproduced".
+  - This is the weakest dimension. Many labelled failures differ in texture or finish, which this definition leaves
+    out on purpose.
+- **integrity** (400 pairs chosen to be rich in breakage, 34 of them labelled broken)
+  - AUC 0.84. At "score ≤ 2 = broken", 79% of the broken pairs are caught and 14% of the other pairs are flagged
+    (some of those may be unlabelled breakage).
+  - On 45 held-out references (180 pairs, 5 labelled broken), it caught 1 of 5. Recall on unseen cases is the open
+    problem.
+
+## Older judges in `sim_judge.py`
+
+- Among these: **rate-v4** (seven single-dimension calls + a fixed total), see [below](#rate-v4-2026-11-25-one-dimension-per-call--a-fixed-total).
   rate-v3 lost to both v2 and v4 on the blind human test and is kept for reference only.
 - Prompt **rate-v3** (CLI default), verbatim: [`PROMPT.md`](PROMPT.md) (generated from `sim_judge.py`).
   Seven dimensions, each with a one-sentence justification, plus a holistic `overall`:
@@ -29,7 +140,7 @@ the reference's design — the way a designer checks a render against an approve
   (webp q90, `detail: high`). Default model `gpt-6.1-terra`.
 - `--prompt rate-v2` runs the earlier symmetric prompt (5 aspects + overall), byte-identical to its 2026-11-19 run.
 
-## rate-v4 (recommended, 2026-11-25): one dimension per call + a fixed total
+## rate-v4 (2026-11-25): one dimension per call + a fixed total
 
 v4 asks seven separate questions, one dimension per call, each answered with a single integer 0–10 (strict JSON
 schema, no justification), REFERENCE vs CANDIDATE, then combines them with a formula fixed before any human data was
