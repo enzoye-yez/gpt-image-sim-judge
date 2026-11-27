@@ -24,7 +24,7 @@ Online (concurrent, resumable; one output file per dimension under OUTDIR):
     python fidelity_judge.py ocr pairs.jsonl ocr.jsonl                   # RapidOCR lines for every image (text dimension)
     python fidelity_judge.py run pairs.jsonl OUTDIR --dims all --ocr ocr.jsonl [--concurrency 8]
     python fidelity_judge.py run pairs.jsonl OUTDIR --dims content,composition
-    python fidelity_judge.py merge OUTDIR --out scores.jsonl             # one row per pid: {pid, content, ..., integrity}
+    python fidelity_judge.py merge OUTDIR --out scores.jsonl             # {pid, content, ..., integrity, weighted, cap, total}
 Batch API (half price, up to 24 h):
     python fidelity_judge.py gate pairs.jsonl OUTDIR                     # only if layout is wanted and pairs lack is_design
     python fidelity_judge.py batch-build pairs.jsonl WORK --dims all --ocr ocr.jsonl [--gate OUTDIR/design_gate.jsonl]
@@ -35,7 +35,8 @@ Output rows (OUTDIR/<dim>.jsonl): {"pid", "dim", "score": 0-5, "reading" or "ref
     "version", "model", "usage"}. A dimension that does not apply gets {"pid", "dim", "score": null, "skipped": reason}
     (layout on a non-design; text when OCR finds fewer than 3 characters in both images). Failures get "error"; re-run `run`
     to retry them (pids that are already ok are skipped).
-The total score over the seven dimensions is not defined yet (see README).
+Total v1 (merge): weighted mean of the applicable dimensions (content .25, composition .15, layout .10, text .15,
+lighting .10, style .10, integrity .15, renormalised), capped at the lowest dimension + 2, times 20 (0-100). See README.
 The API key comes from $OPENAI_API_KEY (or the file in $OPENAI_API_KEY_FILE); it is never printed or written.
 """
 import argparse, concurrent.futures as cf, json, sys, threading, time
@@ -55,6 +56,9 @@ GATE_MODEL, GATE_EFFORT = 'gpt-6-luna', 'low'
 MAX_OUTPUT_TOKENS = 16000
 MAX_OCR_LINES = 250          # per image, top to bottom
 MIN_TEXT_CHARS = 3           # text is judged when OCR reads at least this many characters in either image
+# total v1 (2026-11-27; to be checked against a larger re-score before it is final)
+WEIGHTS = dict(content=.25, composition=.15, layout=.10, text=.15, lighting=.10, style=.10, integrity=.15)
+CAP_MARGIN = 2               # total5 <= lowest applicable dimension + 2
 
 PROMPTS = {d: (HERE / 'prompts' / f'{d}.md').read_text() for d in DIMS}
 GATE_PROMPT = (HERE / 'prompts' / 'design_gate.md').read_text()
@@ -263,16 +267,32 @@ def cmd_ocr(a):
     print(f'{len(paths)} images -> {out}', file=sys.stderr)
 
 
+def total(scores):
+    """Total v1. scores: {dim: 0-5, or None when the dimension does not apply}.
+    weighted = sum(w*s) / sum(w) over the applicable dimensions; cap = lowest applicable score + 2;
+    total = 20 * min(weighted, cap) on 0-100. Returns (weighted, cap, total), all None if nothing applies."""
+    xs = {d: v for d, v in scores.items() if v is not None}
+    if not xs: return None, None, None
+    wt = sum(WEIGHTS[d] * v for d, v in xs.items()) / sum(WEIGHTS[d] for d in xs); cap = min(xs.values()) + CAP_MARGIN
+    return round(wt, 4), cap, round(20 * min(wt, cap), 2)
+
+
 def cmd_merge(a):
+    """One row per pid: the seven scores (null = not applicable), weighted, cap, total (null if an applicable dimension
+    has no score yet; those dimensions are listed in "missing")."""
     by = {}
     for d in DIMS:
         fp = Path(a.outdir) / f'{d}.jsonl'
         if not fp.exists(): continue
         for r in map(json.loads, filter(str.strip, open(fp))):
             if 'error' not in r: by.setdefault(r['pid'], {})[d] = r['score']
+    n_total = 0
     with open(a.out, 'w') as f:
-        for pid, sc in by.items(): f.write(json.dumps({'pid': pid, **{d: sc.get(d) for d in DIMS}}) + '\n')
-    print(f'{len(by)} pairs -> {a.out} (null = not applicable or not run)', file=sys.stderr)
+        for pid, got in by.items():
+            sc = {d: got.get(d) for d in DIMS}; missing = [d for d in DIMS if d not in got]
+            wt, cap, tot = total(sc); tot = None if missing else tot; n_total += tot is not None
+            f.write(json.dumps({'pid': pid, **sc, 'weighted': wt, 'cap': cap, 'total': tot, 'missing': missing}) + '\n')
+    print(f'{len(by)} pairs -> {a.out}; {n_total} with a total (null score = not applicable; "missing" = not run or failed)', file=sys.stderr)
 
 
 # ---------------------------------------------------------------- batch

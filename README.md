@@ -48,7 +48,7 @@ export OPENAI_API_KEY=...                        # or OPENAI_API_KEY_FILE=path
 # pairs.jsonl: {"pid": "p1", "image_a": "ref.png", "image_b": "cand.png", "query": "a poster for ...", "is_design": true}
 python fidelity_judge.py ocr pairs.jsonl ocr.jsonl                                  # OCR lines for the text dimension
 python fidelity_judge.py run pairs.jsonl out/ --dims all --ocr ocr.jsonl          # or --dims content,composition
-python fidelity_judge.py merge out/ --out scores.jsonl                             # {"pid", "content", ..., "integrity"}
+python fidelity_judge.py merge out/ --out scores.jsonl                             # 7 scores + weighted, cap, total (0-100)
 ```
 
 - Output: `out/<dim>.jsonl`, one row per pair: `{"pid", "dim", "score": 0-5, "reading" | "reference_reading",
@@ -62,10 +62,29 @@ python fidelity_judge.py merge out/ --out scores.jsonl                          
 - Cost: about $3.3 per 400 pairs per dimension at `gpt-6.2-sol` / medium (about 3.5–5k input and 0.1–0.8k output
   tokens per call). The prices assumed are $2 / 1M input, $0.1 / 1M cached input and $10 / 1M output.
 
-### Total (TBD)
+### Total (v1, 2026-11-27)
 
-How the seven scores combine into one fidelity score is still being designed. This section will define it.
-Until then, use the per-dimension scores (`merge`).
+`merge` combines the seven dimensions into one score per pair.
+
+```
+weighted = Σ w_d · s_d / Σ w_d          over the dimensions that apply (layout: designs only; text: OCR found text)
+cap      = lowest applicable s_d + 2
+total    = 20 × min(weighted, cap)      0–100
+weights: content .25, composition .15, layout .10, text .15, lighting .10, style .10, integrity .15
+```
+
+- **Weights.** Content is the core of a reconstruction. Composition and layout carry the structure. Text errors and
+  breakage are hard failures in practice. Style and lighting are softer.
+- **Short-board cap.** The cap stops one collapsed dimension from being averaged away by the others:
+  - a 0 in any dimension caps the total at 2 (40/100);
+  - a 1 caps it at 3 (60/100);
+  - a 2 caps it at 4 (80/100);
+  - from 3 up there is no cap.
+- **Dimensions that do not apply** (`null`) are left out, and the weights are renormalised over the rest.
+- **Missing scores.** If a dimension that applies has no score yet (not run, or failed), `total` is `null` and the
+  dimension is listed in `missing`.
+- Output row: `{"pid", <7 dims>, "weighted", "cap", "total", "missing"}`.
+- **v1 status.** This is v1. It will be checked against a re-score of about 7k pairs before it is final.
 
 ### How each dimension was validated
 

@@ -186,6 +186,18 @@ def test_fidelity_batch_roundtrip_and_merge():
         F.cmd_merge(types.SimpleNamespace(outdir=str(d / 'o'), out=str(d / 'scores.jsonl')))
         m = {r['pid']: r for r in map(json.loads, open(d / 'scores.jsonl'))}
         assert m['p0']['layout'] == 3 and m['p0']['text'] == 5 and m['p1']['layout'] is None and m['p0']['content'] is None
+        assert m['p0']['total'] is None and 'content' in m['p0']['missing']              # five dimensions not run
+        assert m['p1']['missing'] == [d for d in F.DIMS if d not in ('layout', 'text')]
+
+
+def test_fidelity_total_v1():
+    assert F.total({d: 5 for d in F.DIMS}) == (5.0, 7, 100.0)
+    assert abs(sum(F.WEIGHTS.values()) - 1) < 1e-9
+    wt, cap, tot = F.total(dict({d: 4 for d in F.DIMS}, integrity=0))             # one collapsed dimension caps at 2
+    assert wt == 3.4 and cap == 2 and tot == 40.0
+    wt, cap, tot = F.total(dict({d: 4 for d in F.DIMS}, layout=None, text=None, content=2))
+    assert abs(wt - (4 * .75 - (.25 * 2)) / .75) < 1e-4 and cap == 4 and tot == round(20 * wt, 2)   # renormalised, cap not binding
+    assert F.total({d: None for d in F.DIMS}) == (None, None, None)
 
 
 if __name__ == '__main__':
